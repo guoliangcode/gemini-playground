@@ -99,7 +99,7 @@ async function handleModels (apiKey) {
   return new Response(body, fixCors(response));
 }
 
-const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
+const DEFAULT_EMBEDDINGS_MODEL = "gemini-flash-latest";
 async function handleEmbeddings (req, apiKey) {
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
@@ -141,7 +141,9 @@ async function handleEmbeddings (req, apiKey) {
   return new Response(body, fixCors(response));
 }
 
-const DEFAULT_MODEL = "gemini-1.5-pro-latest";
+// const DEFAULT_MODEL = "gemini-1.5-pro-latest";
+
+const DEFAULT_MODEL = "gemini-flash-latest";
 async function handleCompletions (req, apiKey) {
   let model = DEFAULT_MODEL;
   switch(true) {
