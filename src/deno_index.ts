@@ -106,13 +106,33 @@ async function handleRequest(req: Request): Promise<Response> {
       filePath = '/index.html';
     }
 
-    // 使用 import.meta.url 获取当前文件所在目录
-    const currentDir = new URL('.', import.meta.url).pathname;
-    const fullPath = `${currentDir}static${filePath}`;
+    // 尝试多个可能的静态文件路径（兼容不同部署环境）
+    const possiblePaths = [
+      `${Deno.cwd()}/static${filePath}`,           // /src/static/...
+      `${Deno.cwd()}/src/static${filePath}`,       // /src/src/static/...
+      `./static${filePath}`,                        // 相对路径
+      `./src/static${filePath}`,                    // 相对路径
+    ];
 
-	console.log('!!!!Request fullPath:', fullPath);
+    let file;
+    let fullPath;
 
-    const file = await Deno.readFile(fullPath);
+    for (const path of possiblePaths) {
+      try {
+        file = await Deno.readFile(path);
+        fullPath = path;
+        break;
+      } catch {
+        continue;
+      }
+    }
+
+    if (!file) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+
+    console.log('✅ !!!Served file:', fullPath);
+
     const contentType = getContentType(filePath);
 
     return new Response(file, {
@@ -121,7 +141,7 @@ async function handleRequest(req: Request): Promise<Response> {
       },
     });
   } catch (e) {
-    console.error('Error details:', e);
+    console.error('❌ Error serving static file:', e.message);
     return new Response('Not Found', {
       status: 404,
       headers: {
