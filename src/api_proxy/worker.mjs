@@ -501,7 +501,7 @@ const transformRequest = async (req) => {
   // Add tools if present
   const tools = transformTools(req.tools);
   if (tools) {
-    console.log("Transformed tools:", JSON.stringify(tools, null, 2));
+    console.log("!!!Transformed tools:", JSON.stringify(tools, null, 2));
     result.tools = [tools];
   }
 
