@@ -1,7 +1,10 @@
 export const CONFIG = {
     API: {
         VERSION: 'v1beta',
-        MODEL_NAME: 'models/gemini-flash-latest'
+        MODEL_NAME: 'models/gemini-flash-latest',
+        // API_MODE: 'websocket' for Live API models (gemini-2.0-flash-exp, etc.)
+        // API_MODE: 'rest' for standard models (gemini-flash-latest, gemini-1.5-pro, etc.)
+        API_MODE: 'rest'  // Change to 'websocket' if using Live API models
     },
     // You can change the system instruction to your liking
     SYSTEM_INSTRUCTION: {

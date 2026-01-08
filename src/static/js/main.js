@@ -1,4 +1,5 @@
 import { MultimodalLiveClient } from './core/websocket-client.js';
+import { RestApiClient } from './core/rest-client.js';
 import { AudioStreamer } from './audio/audio-streamer.js';
 import { AudioRecorder } from './audio/audio-recorder.js';
 import { CONFIG } from './config/config.js';
@@ -96,8 +97,13 @@ let isScreenSharing = false;
 let screenRecorder = null;
 let isUsingTool = false;
 
-// Multimodal Client
-const client = new MultimodalLiveClient();
+// Multimodal Client - choose based on API_MODE in config
+const client = CONFIG.API.API_MODE === 'rest'
+    ? new RestApiClient()
+    : new MultimodalLiveClient();
+
+// Log which mode we're using
+Logger.info(`Using ${CONFIG.API.API_MODE.toUpperCase()} API mode with model: ${CONFIG.API.MODEL_NAME}`);
 
 /**
  * Logs a message to the UI.
@@ -152,12 +158,12 @@ function updateMicIcon() {
 function updateAudioVisualizer(volume, isInput = false) {
     const visualizer = isInput ? inputAudioVisualizer : audioVisualizer;
     const audioBar = visualizer.querySelector('.audio-bar') || document.createElement('div');
-    
+
     if (!visualizer.contains(audioBar)) {
         audioBar.classList.add('audio-bar');
         visualizer.appendChild(audioBar);
     }
-    
+
     audioBar.style.width = `${volume * 100}%`;
     if (volume > 0) {
         audioBar.classList.add('active');
@@ -188,15 +194,21 @@ async function ensureAudioInitialized() {
  * @returns {Promise<void>}
  */
 async function handleMicToggle() {
+    // Disable microphone in REST API mode
+    if (CONFIG.API.API_MODE === 'rest') {
+        logMessage('Microphone is not supported in REST API mode. Please use text input.', 'system');
+        return;
+    }
+
     if (!isRecording) {
         try {
             await ensureAudioInitialized();
             audioRecorder = new AudioRecorder();
-            
+
             const inputAnalyser = audioCtx.createAnalyser();
             inputAnalyser.fftSize = 256;
             const inputDataArray = new Uint8Array(inputAnalyser.frequencyBinCount);
-            
+
             await audioRecorder.start((base64Data) => {
                 if (isUsingTool) {
                     client.sendRealtimeInput([{
@@ -210,7 +222,7 @@ async function handleMicToggle() {
                         data: base64Data
                     }]);
                 }
-                
+
                 inputAnalyser.getByteFrequencyData(inputDataArray);
                 const inputVolume = Math.max(...inputDataArray) / 255;
                 updateAudioVisualizer(inputVolume, true);
@@ -219,7 +231,7 @@ async function handleMicToggle() {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const source = audioCtx.createMediaStreamSource(stream);
             source.connect(inputAnalyser);
-            
+
             await audioStreamer.resume();
             isRecording = true;
             Logger.info('Microphone started');
@@ -274,8 +286,8 @@ async function connectToWebsocket() {
             responseModalities: responseTypeSelect.value,
             speechConfig: {
                 languageCode: languageSelect.value,
-                voiceConfig: { 
-                    prebuiltVoiceConfig: { 
+                voiceConfig: {
+                    prebuiltVoiceConfig: {
                         voiceName: voiceSelect.value    // You can change voice in the config.js file
                     }
                 }
@@ -287,7 +299,7 @@ async function connectToWebsocket() {
                 text: systemInstructionInput.value     // You can change system instruction in the config.js file
             }],
         }
-    };  
+    };
 
     try {
         await client.connect(config,apiKeyInput.value);
@@ -297,9 +309,20 @@ async function connectToWebsocket() {
         connectButton.classList.add('connected');
         messageInput.disabled = false;
         sendButton.disabled = false;
-        micButton.disabled = false;
-        cameraButton.disabled = false;
-        screenButton.disabled = false;
+
+        // Only enable audio/video features in WebSocket mode
+        if (CONFIG.API.API_MODE === 'websocket') {
+            micButton.disabled = false;
+            cameraButton.disabled = false;
+            screenButton.disabled = false;
+        } else {
+            // In REST mode, keep these disabled and show a hint
+            micButton.disabled = true;
+            cameraButton.disabled = true;
+            screenButton.disabled = true;
+            logMessage('Note: Audio/Video features are only available in WebSocket mode', 'system');
+        }
+
         logMessage('Connected to Gemini Multimodal Live API', 'system');
     } catch (error) {
         const errorMessage = error.message || 'Unknown error';
@@ -339,11 +362,11 @@ function disconnectFromWebsocket() {
     cameraButton.disabled = true;
     screenButton.disabled = true;
     logMessage('Disconnected from server', 'system');
-    
+
     if (videoManager) {
         stopVideo();
     }
-    
+
     if (screenRecorder) {
         stopScreenSharing();
     }
@@ -460,8 +483,14 @@ connectButton.textContent = 'Connect';
  * @returns {Promise<void>}
  */
 async function handleVideoToggle() {
+    // Disable video in REST API mode
+    if (CONFIG.API.API_MODE === 'rest') {
+        logMessage('Video is not supported in REST API mode.', 'system');
+        return;
+    }
+
     Logger.info('Video toggle clicked, current state:', { isVideoActive, isConnected });
-    
+
     localStorage.setItem('video_fps', fpsInput.value);
 
     if (!isVideoActive) {
@@ -470,7 +499,7 @@ async function handleVideoToggle() {
             if (!videoManager) {
                 videoManager = new VideoManager();
             }
-            
+
             await videoManager.start(fpsInput.value,(frameData) => {
                 if (isConnected) {
                     client.sendRealtimeInput([frameData]);
@@ -521,10 +550,16 @@ cameraButton.disabled = true;
  * @returns {Promise<void>}
  */
 async function handleScreenShare() {
+    // Disable screen sharing in REST API mode
+    if (CONFIG.API.API_MODE === 'rest') {
+        logMessage('Screen sharing is not supported in REST API mode.', 'system');
+        return;
+    }
+
     if (!isScreenSharing) {
         try {
             screenContainer.style.display = 'block';
-            
+
             screenRecorder = new ScreenRecorder();
             await screenRecorder.start(screenPreview, (frameData) => {
                 if (isConnected) {
