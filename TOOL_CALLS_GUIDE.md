@@ -284,6 +284,7 @@ curl http://localhost:8000/chat/completions \
    - 必须提供 `name` 和 `parameters`
    - `parameters` 必须是有效的 JSON Schema
    - `description` 建议提供，帮助 AI 理解工具用途
+   - ⚠️ **JSON Schema 兼容性**：Gemini API 不支持 `$schema`、`additionalProperties` 等字段，但 Proxy 会自动清理这些字段。详见 [JSON_SCHEMA_COMPATIBILITY.md](JSON_SCHEMA_COMPATIBILITY.md)
 
 3. **工具结果**：
    - `role: "tool"` 消息必须包含 `tool_call_id` 和 `name`

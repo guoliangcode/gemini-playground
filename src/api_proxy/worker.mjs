@@ -398,6 +398,51 @@ const transformMessages = async (messages) => {
   return { system_instruction, contents };
 };
 
+// Clean JSON Schema for Gemini API (remove unsupported fields)
+const cleanJsonSchema = (schema) => {
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+
+  const cleaned = { ...schema };
+
+  // Remove fields that Gemini API doesn't support
+  delete cleaned.$schema;
+  delete cleaned.$id;
+  delete cleaned.$ref;
+  delete cleaned.additionalProperties;
+  delete cleaned.definitions;
+  delete cleaned.$defs;
+
+  // Recursively clean nested objects
+  if (cleaned.properties && typeof cleaned.properties === 'object') {
+    cleaned.properties = Object.fromEntries(
+      Object.entries(cleaned.properties).map(([key, value]) => [
+        key,
+        cleanJsonSchema(value)
+      ])
+    );
+  }
+
+  // Clean items in arrays
+  if (cleaned.items) {
+    cleaned.items = cleanJsonSchema(cleaned.items);
+  }
+
+  // Clean anyOf, oneOf, allOf
+  if (cleaned.anyOf) {
+    cleaned.anyOf = cleaned.anyOf.map(cleanJsonSchema);
+  }
+  if (cleaned.oneOf) {
+    cleaned.oneOf = cleaned.oneOf.map(cleanJsonSchema);
+  }
+  if (cleaned.allOf) {
+    cleaned.allOf = cleaned.allOf.map(cleanJsonSchema);
+  }
+
+  return cleaned;
+};
+
 // Transform OpenAI tools format to Gemini tools format
 const transformTools = (tools) => {
   if (!tools || !Array.isArray(tools) || tools.length === 0) {
@@ -409,7 +454,7 @@ const transformTools = (tools) => {
       return {
         name: tool.function.name,
         description: tool.function.description || "",
-        parameters: tool.function.parameters || {}
+        parameters: cleanJsonSchema(tool.function.parameters || {})
       };
     }
     return null;
@@ -456,6 +501,7 @@ const transformRequest = async (req) => {
   // Add tools if present
   const tools = transformTools(req.tools);
   if (tools) {
+    console.log("Transformed tools:", JSON.stringify(tools, null, 2));
     result.tools = [tools];
   }
 
