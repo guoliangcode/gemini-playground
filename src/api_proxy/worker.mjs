@@ -296,12 +296,52 @@ const parseImg = async (url) => {
   };
 };
 
-const transformMsg = async ({ role, content }) => {
+const transformMsg = async ({ role, content, tool_calls, tool_call_id, name }) => {
   const parts = [];
+
+  // Handle tool/function response (OpenAI format: role="tool")
+  if (role === "tool" && tool_call_id) {
+    return {
+      role: "function",
+      parts: [{
+        functionResponse: {
+          name: name,
+          response: typeof content === "string" ? JSON.parse(content) : content
+        }
+      }]
+    };
+  }
+
+  // Handle assistant message with tool_calls
+  if (role === "assistant" && tool_calls && tool_calls.length > 0) {
+    // Add text content if exists
+    if (content) {
+      parts.push({ text: content });
+    }
+    // Add function calls
+    for (const tool_call of tool_calls) {
+      if (tool_call.type === "function") {
+        parts.push({
+          functionCall: {
+            name: tool_call.function.name,
+            args: typeof tool_call.function.arguments === "string"
+              ? JSON.parse(tool_call.function.arguments)
+              : tool_call.function.arguments
+          }
+        });
+      }
+    }
+    return { role, parts };
+  }
+
   if (!Array.isArray(content)) {
     // system, user: string
     // assistant: string or null (Required unless tool_calls is specified.)
-    parts.push({ text: content });
+    if (content === null && role === "assistant") {
+      // Assistant message with only tool_calls, no text content
+      return { role, parts: [] };
+    }
+    parts.push({ text: content || "" });
     return { role, parts };
   }
   // user:
@@ -342,6 +382,10 @@ const transformMessages = async (messages) => {
     if (item.role === "system") {
       delete item.role;
       system_instruction = await transformMsg(item);
+    } else if (item.role === "tool") {
+      // Keep role as "function" for Gemini
+      const transformed = await transformMsg(item);
+      contents.push(transformed);
     } else {
       item.role = item.role === "assistant" ? "model" : "user";
       contents.push(await transformMsg(item));
@@ -354,11 +398,75 @@ const transformMessages = async (messages) => {
   return { system_instruction, contents };
 };
 
-const transformRequest = async (req) => ({
-  ...await transformMessages(req.messages),
-  safetySettings,
-  generationConfig: transformConfig(req),
-});
+// Transform OpenAI tools format to Gemini tools format
+const transformTools = (tools) => {
+  if (!tools || !Array.isArray(tools) || tools.length === 0) {
+    return undefined;
+  }
+
+  const functionDeclarations = tools.map(tool => {
+    if (tool.type === "function") {
+      return {
+        name: tool.function.name,
+        description: tool.function.description || "",
+        parameters: tool.function.parameters || {}
+      };
+    }
+    return null;
+  }).filter(Boolean);
+
+  return functionDeclarations.length > 0 ? { functionDeclarations } : undefined;
+};
+
+// Transform OpenAI tool_choice to Gemini toolConfig
+const transformToolChoice = (tool_choice) => {
+  if (!tool_choice) {
+    return undefined;
+  }
+
+  // OpenAI tool_choice can be: "none", "auto", "required", or {"type": "function", "function": {"name": "..."}}
+  if (tool_choice === "none") {
+    return { functionCallingConfig: { mode: "NONE" } };
+  }
+  if (tool_choice === "auto") {
+    return { functionCallingConfig: { mode: "AUTO" } };
+  }
+  if (tool_choice === "required") {
+    return { functionCallingConfig: { mode: "ANY" } };
+  }
+  if (typeof tool_choice === "object" && tool_choice.type === "function") {
+    return {
+      functionCallingConfig: {
+        mode: "ANY",
+        allowedFunctionNames: [tool_choice.function.name]
+      }
+    };
+  }
+
+  return undefined;
+};
+
+const transformRequest = async (req) => {
+  const result = {
+    ...await transformMessages(req.messages),
+    safetySettings,
+    generationConfig: transformConfig(req),
+  };
+
+  // Add tools if present
+  const tools = transformTools(req.tools);
+  if (tools) {
+    result.tools = [tools];
+  }
+
+  // Add tool config if present
+  const toolConfig = transformToolChoice(req.tool_choice);
+  if (toolConfig) {
+    result.toolConfig = toolConfig;
+  }
+
+  return result;
+};
 
 const generateChatcmplId = () => {
   const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -375,15 +483,65 @@ const reasonsMap = { //https://ai.google.dev/api/rest/v1/GenerateContentResponse
   //"OTHER": "OTHER",
   // :"function_call",
 };
+
+// Transform Gemini functionCall to OpenAI tool_calls format
+const transformFunctionCalls = (parts) => {
+  if (!parts || !Array.isArray(parts)) {
+    return null;
+  }
+
+  const tool_calls = [];
+  for (const part of parts) {
+    if (part.functionCall) {
+      tool_calls.push({
+        id: `call_${generateToolCallId()}`,
+        type: "function",
+        function: {
+          name: part.functionCall.name,
+          arguments: JSON.stringify(part.functionCall.args || {})
+        }
+      });
+    }
+  }
+
+  return tool_calls.length > 0 ? tool_calls : null;
+};
+
+const generateToolCallId = () => {
+  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const randomChar = () => characters[Math.floor(Math.random() * characters.length)];
+  return Array.from({ length: 24 }, randomChar).join("");
+};
 const SEP = "\n\n|>";
-const transformCandidates = (key, cand) => ({
-  index: cand.index || 0, // 0-index is absent in new -002 models response
-  [key]: {
-    role: "assistant",
-    content: cand.content?.parts.map(p => p.text).join(SEP) },
-  logprobs: null,
-  finish_reason: reasonsMap[cand.finishReason] || cand.finishReason,
-});
+const transformCandidates = (key, cand) => {
+  const result = {
+    index: cand.index || 0, // 0-index is absent in new -002 models response
+    [key]: {
+      role: "assistant",
+      content: null
+    },
+    logprobs: null,
+    finish_reason: reasonsMap[cand.finishReason] || cand.finishReason,
+  };
+
+  // Extract text content
+  const textParts = cand.content?.parts?.filter(p => p.text).map(p => p.text) || [];
+  if (textParts.length > 0) {
+    result[key].content = textParts.join(SEP);
+  }
+
+  // Extract function calls and convert to tool_calls
+  const tool_calls = transformFunctionCalls(cand.content?.parts);
+  if (tool_calls) {
+    result[key].tool_calls = tool_calls;
+    // If there are tool calls, finish_reason should be "tool_calls"
+    if (!result.finish_reason || result.finish_reason === "stop") {
+      result.finish_reason = "tool_calls";
+    }
+  }
+
+  return result;
+};
 const transformCandidatesMessage = transformCandidates.bind(null, "message");
 const transformCandidatesDelta = transformCandidates.bind(null, "delta");
 
@@ -426,8 +584,22 @@ async function parseStreamFlush (controller) {
 
 function transformResponseStream (data, stop, first) {
   const item = transformCandidatesDelta(data.candidates[0]);
-  if (stop) { item.delta = {}; } else { item.finish_reason = null; }
-  if (first) { item.delta.content = ""; } else { delete item.delta.role; }
+  if (stop) {
+    item.delta = {};
+  } else {
+    item.finish_reason = null;
+  }
+
+  // Handle first chunk
+  if (first) {
+    // For tool calls, don't set content to empty string
+    if (!item.delta.tool_calls) {
+      item.delta.content = "";
+    }
+  } else {
+    delete item.delta.role;
+  }
+
   const output = {
     id: this.id,
     choices: [item],
