@@ -106,7 +106,11 @@ async function handleRequest(req: Request): Promise<Response> {
       filePath = '/index.html';
     }
 
-    const fullPath = `${Deno.cwd()}/src/static${filePath}`;
+    // 使用 import.meta.url 获取当前文件所在目录
+    const currentDir = new URL('.', import.meta.url).pathname;
+    const fullPath = `${currentDir}static${filePath}`;
+
+	console.log('!!!!Request fullPath:', fullPath);
 
     const file = await Deno.readFile(fullPath);
     const contentType = getContentType(filePath);
