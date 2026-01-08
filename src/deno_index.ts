@@ -97,7 +97,7 @@ async function handleRequest(req: Request): Promise<Response> {
       url.pathname.endsWith("/embeddings") ||
       url.pathname.endsWith("/models") ||
       url.pathname.endsWith("/responses")) {
-	console.log('===handle Request URL:', req.url);
+	console.log('!!!===handle Request URL:', req.url);
     return handleAPIRequest(req);
   }
 
