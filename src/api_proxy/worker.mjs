@@ -414,6 +414,8 @@ const cleanJsonSchema = (schema) => {
   delete cleaned.definitions;
   delete cleaned.$defs;
 
+  console.info("!!!! clean");
+
   // Recursively clean nested objects
   if (cleaned.properties && typeof cleaned.properties === 'object') {
     cleaned.properties = Object.fromEntries(
