@@ -131,7 +131,7 @@ async function handleRequest(req: Request): Promise<Response> {
       throw new Error(`File not found: ${filePath}`);
     }
 
-    console.log('✅ !!!Served file:', fullPath);
+    console.log('✅ !!!==Served file:', fullPath);
 
     const contentType = getContentType(filePath);
 
