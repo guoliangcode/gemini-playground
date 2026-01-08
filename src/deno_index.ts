@@ -95,7 +95,9 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (url.pathname.endsWith("/chat/completions") ||
       url.pathname.endsWith("/embeddings") ||
-      url.pathname.endsWith("/models")) {
+      url.pathname.endsWith("/models") ||
+      url.pathname.endsWith("/responses")) {
+	console.log('===handle Request URL:', req.url);
     return handleAPIRequest(req);
   }
 
@@ -126,6 +128,8 @@ async function handleRequest(req: Request): Promise<Response> {
         continue;
       }
     }
+
+	 console.log('✅ !!!==fullPath:', fullPath);
 
     if (!file) {
       throw new Error(`File not found: ${filePath}`);

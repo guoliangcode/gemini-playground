@@ -27,6 +27,10 @@ export default {
           assert(request.method === "POST");
           return handleCompletions(await request.json(), apiKey)
             .catch(errHandler);
+        case pathname.endsWith("/responses"):
+          assert(request.method === "POST");
+          return handleResponses(await request.json(), apiKey)
+            .catch(errHandler);
         case pathname.endsWith("/embeddings"):
           assert(request.method === "POST");
           return handleEmbeddings(await request.json(), apiKey)
@@ -97,6 +101,26 @@ async function handleModels (apiKey) {
     }, null, "  ");
   }
   return new Response(body, fixCors(response));
+}
+
+// Handle OpenAI Responses API (similar to chat completions)
+async function handleResponses (req, apiKey) {
+  // Responses API uses similar format to chat completions
+  // Transform the request to match chat completions format
+  const chatReq = {
+    model: req.model || DEFAULT_MODEL,
+    messages: req.messages || [],
+    stream: req.stream || false,
+    temperature: req.temperature,
+    max_tokens: req.max_tokens,
+    top_p: req.top_p,
+    tools: req.tools,
+    tool_choice: req.tool_choice,
+    stream_options: req.stream_options,
+  };
+
+  // Use the same handler as chat completions
+  return handleCompletions(chatReq, apiKey);
 }
 
 const DEFAULT_EMBEDDINGS_MODEL = "gemini-flash-latest";
